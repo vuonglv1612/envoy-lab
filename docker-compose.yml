@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rate_limiter:
+    build:
+      context: ./rate_limiter
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:9001:9001"
+    environment:
+      - REDIS_ADDR=redis:6379
+      - GRPC_PORT=:9001
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:9001"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  usage_service:
+    build:
+      context: ./usage_service
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:9002:9002"
+    environment:
+      - REDIS_ADDR=redis:6379
+      - GRPC_PORT=:9002
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:9002"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  redis_data: 

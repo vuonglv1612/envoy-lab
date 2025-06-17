@@ -1,12 +1,34 @@
 [Unit]
-Description=Envoy Proxy
-After=network.target
+Description=Envoy Proxy for Bot Rate Limiting
+Documentation=https://www.envoyproxy.io/
+After=network.target docker.service
+Wants=docker.service
+Requires=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/envoy -c /root/api/envoy.yaml
+User=root
+Group=root
+WorkingDirectory=/root/api
+ExecStart=/usr/bin/envoy -c /root/api/envoy.yaml --service-cluster front-proxy
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# Security and resource limits
+LimitNOFILE=65536
+LimitNPROC=32768
+
+# Environment variables
+Environment="ENVOY_LOG_LEVEL=info"
+Environment="ENVOY_COMPONENT_LOG_LEVEL=upstream:debug,connection:info"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=envoy
 
 [Install]
 WantedBy=multi-user.target
