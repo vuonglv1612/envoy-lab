@@ -1,0 +1,12 @@
+[Unit]
+Description=Envoy Proxy
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/envoy -c /root/api/envoy.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
