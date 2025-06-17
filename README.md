@@ -33,9 +33,10 @@ graph TD
 - Example: `/bot6148450508:AAFl4_SrGS-wh4wiO70XFb3dY_74ikigA1M/getUpdates`
 
 ### 📊 **Usage Tracking**
-- Tracks successful requests (200 responses) against quotas
-- Refunds rate limits for failed requests (non-200 responses)
-- Monthly billing period support
+- Pre-increments usage counters for quota checks during authorization
+- Tracks response status codes and reduces usage for failed requests
+- Supports configurable paid status codes (200, 201, 202, 204, 206, 304)
+- Failed requests get usage refunded automatically
 
 ## Redis Key Patterns
 
@@ -49,16 +50,19 @@ rate_limit:{bot_id} → 50 (requests per second)
 counter:{bot_id}:{timestamp} → 23 (requests in current second)
 TTL: 1 second (auto-cleanup)
 
-# Usage Totals (per billing period)
-usage_total:{bot_id}:{period_start} → 1247 (total requests this period)
-TTL: 30 days (configurable)
+# Usage Totals (current billing period)
+usage:{bot_id} → 1247 (total requests this period)
+
+# Quota Limits (per bot)
+quota:{bot_id} → 5000 (monthly quota limit)
 ```
 
 ### Example for Bot `6148450508`:
 ```redis
 rate_limit:6148450508 → 50
 counter:6148450508:1718409600 → 23
-usage_total:6148450508:1718236800 → 1247
+usage:6148450508 → 1247
+quota:6148450508 → 5000
 ```
 
 ## Quick Start
@@ -74,37 +78,24 @@ docker-compose ps
 
 ### 2. **Start Envoy Proxy (Separate Service)**
 ```bash
-# Option 1: Use the provided script (recommended)
-./scripts/run_envoy.sh
-
-# Option 2: Run Envoy with Docker
+# Option 1: Run Envoy with Docker (recommended)
 docker run --rm -it -p 10000:10000 -p 9901:9901 \
-  -v $(pwd)/envoy.yaml:/etc/envoy/envoy.yaml \
+  -v $(pwd)/envoy-docker.yaml:/etc/envoy/envoy.yaml \
   --network host \
   envoyproxy/envoy:v1.28-latest \
   envoy -c /etc/envoy/envoy.yaml --service-cluster front-proxy
 
-# Option 3: Run Envoy binary directly (if installed)
-envoy -c envoy.yaml --service-cluster front-proxy
+# Option 2: Run Envoy binary directly (if installed)
+envoy -c envoy-docker.yaml --service-cluster front-proxy
 ```
 
 ### 3. **Configure Bot Limits**
 ```bash
-# Set rate limit for bot 6148450508 (50 req/sec)
-uv run scripts/setup_bot_limits.py --bot 6148450508 --rate 50 --action set
+# Set rate limit and quota for bot 6148450508
+uv run scripts/setup_bot_limits.py --bot 6148450508 --rate 50 --quota 5000 --action set
 
 # Check bot status
 uv run scripts/setup_bot_limits.py --bot 6148450508 --action get
-```
-
-### 4. **Test the System**
-```bash
-# Run comprehensive tests
-./scripts/test_rate_limiting.sh
-
-# Test specific scenarios
-./scripts/test_rate_limiting.sh --flood 100
-./scripts/test_rate_limiting.sh --setup 25
 ```
 
 ### 4. **Make API Requests**
@@ -120,31 +111,34 @@ curl -I "http://localhost:10000/bot6148450508:AAFl4_SrGS-wh4wiO70XFb3dY_74ikigA1
 
 ### 🛡️ **Rate Limiter Service** (Port 9001)
 - **Purpose**: Envoy ext_authz integration
-- **Function**: Checks rate limits before request processing
-- **Technology**: Go gRPC service
+- **Function**: Pre-request authorization and rate limiting
+- **Technology**: Go gRPC service with Envoy Authorization API
 - **Key Features**:
-  - Bot token extraction from URL
-  - Redis Lua script execution
-  - Rate limit and quota validation
-  - Temporary rate counter increments
+  - Bot token extraction from URL path (`/bot{TOKEN}/endpoint`)
+  - Atomic rate and quota checks via Redis Lua scripts
+  - Pre-increments both rate and usage counters
+  - Returns detailed limit information in response headers
+  - Supports regex-based bot token validation
 
 ### 📈 **Usage Tracking Service** (Port 9002)
 - **Purpose**: Envoy ext_proc integration  
-- **Function**: Tracks usage after request completion
-- **Technology**: Go gRPC service
+- **Function**: Post-request usage adjustment based on response status
+- **Technology**: Go gRPC service with Envoy External Processing API
 - **Key Features**:
-  - Consumes quotas for successful requests (200)
-  - Refunds rate limits for failed requests (non-200)
-  - Real-time usage tracking
+  - Processes both request and response headers
+  - Tracks bot tokens per request ID for correlation
+  - Reduces usage for failed requests (non-paid status codes)
+  - Maintains quota headers in responses
+  - Configurable paid status codes: 200, 201, 202, 204, 206, 304
 
 ### 🚪 **Envoy Proxy** (Port 10000) - Separate Service
 - **Purpose**: Request routing and filtering
-- **Configuration**: `envoy.yaml`
-- **Deployment**: Runs separately from Docker Compose
+- **Configuration**: `envoy-docker.yaml`
+- **Deployment**: Runs separately from Docker Compose services
 - **Filters**:
-  - `ext_authz`: Rate limit checking
-  - `ext_proc`: Usage tracking
-  - `router`: Request forwarding
+  - `ext_authz`: Rate limit checking (Rate Limiter Service)
+  - `ext_proc`: Usage tracking (Usage Service)
+  - `router`: Request forwarding to backend
 
 ### 🗄️ **Redis** (Port 6379)
 - **Purpose**: Rate limit storage and Lua script execution
@@ -196,7 +190,7 @@ Content-Type: application/json
 
 **Headers:**
 - `x-bot-token`: Bot token that was processed
-- `x-quota-remaining`: Remaining quota for billing period
+- `x-quota-remaining`: Remaining quota for billing period  
 - `x-quota-limit`: Total quota limit
 - `x-rate-limit`: Rate limit per second
 
@@ -248,37 +242,38 @@ GRPC_PORT=:9002             # gRPC server port
 ```
 
 ### Default Rate Limits
-- **Trial**: 50 requests/second, 5,000 requests/month
-- **Pro**: 100 requests/second, 10,000 requests/month
-- **Custom**: Configurable via management tools
+- **Rate Limit**: 50 requests/second (configurable per bot)
+- **Quota Limit**: 5,000 requests/month (configurable per bot)
+- **Paid Status Codes**: 200, 201, 202, 204, 206, 304 (requests that count toward usage)
+- **Management**: Redis-based configuration via scripts
 
 ## Management Tools
 
 ### Bot Limit Management
 ```bash
-# Set bot rate limit
-uv run scripts/setup_bot_limits.py --bot 6148450508 --rate 100 --action set
+# Set bot rate and quota limits (defaults: 50 req/sec, 5000 quota)
+uv run scripts/setup_bot_limits.py --bot 6148450508 --rate 100 --quota 10000 --action set
 
-# Get bot status
+# Get bot status and current usage
 uv run scripts/setup_bot_limits.py --bot 6148450508 --action get
 
-# Delete bot limits
+# Delete all bot data (limits, usage, counters)
 uv run scripts/setup_bot_limits.py --bot 6148450508 --action delete
+
+# Connect to custom Redis instance
+uv run scripts/setup_bot_limits.py --redis localhost:6379 --bot 6148450508 --action get
 ```
 
 ### Testing Tools
 ```bash
-# Run all tests
-./scripts/test_rate_limiting.sh
+# Test basic functionality with curl
+curl "http://localhost:10000/bot6148450508:AAFl4_SrGS-wh4wiO70XFb3dY_74ikigA1M/getUpdates"
 
-# Flood test with 100 requests
-./scripts/test_rate_limiting.sh --flood 100
+# Test rate limiting by making multiple requests quickly
+for i in {1..10}; do curl -s "http://localhost:10000/bot6148450508:AAFl4_SrGS-wh4wiO70XFb3dY_74ikigA1M/getMe"; done
 
-# Setup custom rate limit
-./scripts/test_rate_limiting.sh --setup 25
-
-# Check Redis keys
-./scripts/test_rate_limiting.sh --keys
+# Check rate limit headers
+curl -I "http://localhost:10000/bot6148450508:AAFl4_SrGS-wh4wiO70XFb3dY_74ikigA1M/getMe"
 ```
 
 ## Monitoring
@@ -297,14 +292,19 @@ curl http://localhost:9901/stats
 
 ### Redis Monitoring
 ```bash
-# Check current keys
-docker-compose exec redis redis-cli KEYS "*"
+# Check current keys for a specific bot
+docker-compose exec redis redis-cli KEYS "*6148450508*"
 
 # Monitor real-time commands
 docker-compose exec redis redis-cli MONITOR
 
 # Check memory usage
 docker-compose exec redis redis-cli INFO memory
+
+# Check specific bot data
+docker-compose exec redis redis-cli GET rate_limit:6148450508
+docker-compose exec redis redis-cli GET quota:6148450508
+docker-compose exec redis redis-cli GET usage:6148450508
 ```
 
 ### Logs
@@ -318,17 +318,88 @@ docker-compose logs -f usage_service
 docker-compose logs -f envoy
 ```
 
+## Technical Implementation
+
+### Rate Limiter Service Details
+
+The rate limiter implements Envoy's External Authorization API:
+
+```go
+// Bot token extraction from URL path
+var botTokenRegex = regexp.MustCompile(`^/bot([0-9]+:[A-Za-z0-9_-]+)/`)
+
+// Redis key generation for bot ID
+func generateKeys(botToken string, currentTime int64) *RedisKeys {
+    botID := strings.Split(botToken, ":")[0]
+    return &RedisKeys{
+        RateLimit:  fmt.Sprintf("rate_limit:%s", botID),
+        Counter:    fmt.Sprintf("counter:%s:%d", botID, currentTime),
+        UsageTotal: fmt.Sprintf("usage:%s", botID),
+        QuotaLimit: fmt.Sprintf("quota:%s", botID),
+    }
+}
+```
+
+### Usage Tracking Service Details
+
+The usage service implements Envoy's External Processing API:
+
+```go
+// Configurable paid status codes
+paidStatusCodes := map[int]bool{
+    200: true, // OK
+    201: true, // Created
+    202: true, // Accepted
+    204: true, // No Content
+    206: true, // Partial Content
+    304: true, // Not Modified (cached response)
+}
+```
+
+### Lua Script Implementation
+
+The rate limiting logic is implemented in Redis Lua for atomicity:
+
+```lua
+-- Check rate and quota limits atomically
+-- Pre-increment counters for authorization
+-- Return: {allowed, reason, quota_used, quota_limit, rate_used}
+```
+
+### Service Communication Flow
+
+1. **Request Phase**: Rate Limiter → Redis (check + increment)
+2. **Response Phase**: Usage Service → Redis (adjust based on status)
+3. **Header Correlation**: Request ID links rate limiter and usage tracking
+
+### Dependencies
+
+**Rate Limiter Service (Go 1.21):**
+- `github.com/envoyproxy/go-control-plane v0.12.0` - Envoy gRPC APIs
+- `github.com/go-redis/redis/v8 v8.11.5` - Redis client with Lua script support
+- `google.golang.org/grpc v1.60.1` - gRPC server implementation
+
+**Usage Service (Go 1.21):**
+- Same dependencies as Rate Limiter
+- Implements ext_proc (External Processing) API
+- Uses request/response correlation for usage tracking
+
 ## Development
 
 ### Building Services
 ```bash
 # Build rate limiter
 cd rate_limiter
+go mod tidy
 go build -o rate_limiter .
 
 # Build usage service
 cd usage_service  
+go mod tidy
 go build -o usage_service .
+
+# Build with Docker
+docker-compose build rate_limiter usage_service
 ```
 
 ### Running Locally
@@ -348,9 +419,7 @@ REDIS_ADDR=localhost:6379 go run .
 uvicorn main:app --port 8000
 
 # Start Envoy (separate terminal)
-./scripts/run_envoy.sh
-# OR
-envoy -c envoy.yaml --service-cluster front-proxy
+envoy -c envoy-docker.yaml --service-cluster front-proxy
 ```
 
 ## Troubleshooting
@@ -379,9 +448,14 @@ docker-compose ps redis
 ```bash
 # Check if bot limits are set
 docker-compose exec redis redis-cli GET "rate_limit:6148450508"
+docker-compose exec redis redis-cli GET "quota:6148450508"
 
-# Set default limits
+# Set default limits manually
 docker-compose exec redis redis-cli SET "rate_limit:6148450508" 50
+docker-compose exec redis redis-cli SET "quota:6148450508" 5000
+
+# Check current usage
+docker-compose exec redis redis-cli GET "usage:6148450508"
 ```
 
 #### 4. **Invalid Bot Token Error**
