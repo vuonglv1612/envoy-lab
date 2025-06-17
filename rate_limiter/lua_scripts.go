@@ -49,6 +49,7 @@ if current_rate + cost > rate_limit then
 end
 redis.call('INCRBY', KEYS[2], cost)
 redis.call('EXPIRE', KEYS[2], 1)
+current_rate = current_rate + cost
 
 -- Check current quota usage before incrementing
 if quota_used + cost > quota_limit then

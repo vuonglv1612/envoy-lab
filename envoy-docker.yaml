@@ -29,11 +29,10 @@ static_resources:
               grpc_service:
                 envoy_grpc:
                   cluster_name: rate_limiter_service
-              transport_api_version: V3
-              include_peer_certificate: true
-              # Forward rate limiting headers to client response
+              # Forward rate limiting headers to client response AND make available to downstream filters
               allowed_headers:
                 patterns:
+                  - exact: "x-bot-token"
                   - exact: "x-quota-remaining"
                   - exact: "x-quota-limit"
                   - exact: "x-rate-limit"
@@ -46,7 +45,9 @@ static_resources:
               grpc_service:
                 envoy_grpc:
                   cluster_name: usage_tracking_service
+              # Configure processing mode to send both request and response headers
               processing_mode:
+                request_header_mode: SEND
                 response_header_mode: SEND
           - name: envoy.filters.http.router
             typed_config:

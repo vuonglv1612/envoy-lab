@@ -56,29 +56,39 @@ func (s *RateLimiterService) Check(ctx context.Context, req *authv3.CheckRequest
 	// Extract request attributes
 	httpAttrs := req.GetAttributes().GetRequest().GetHttp()
 	if httpAttrs == nil {
-		log.Println("No HTTP attributes found in request")
+		log.Println("Rate Limiter: No HTTP attributes found in request")
 		return s.createDeniedResponse(401, "missing_http_attributes", "No HTTP attributes found"), nil
 	}
 
 	// Extract bot token from URL path
 	path := httpAttrs.GetPath()
+	method := httpAttrs.GetMethod()
 	botToken := s.extractBotToken(path)
 	
 	if botToken == "" {
-		log.Printf("Invalid bot token in path: %s", path)
+		log.Printf("Rate Limiter: Invalid bot token in path: %s (method: %s)", path, method)
 		return s.createDeniedResponse(401, "invalid_bot_token", "Invalid or missing bot token in URL"), nil
 	}
+
+	// Log incoming request
+	botID := strings.Split(botToken, ":")[0]
+	log.Printf("Rate Limiter: Incoming request - Bot ID: %s, Method: %s, Path: %s", botID, method, path)
 
 	// Check rate limits
 	result, err := s.checkRateLimit(ctx, botToken)
 	if err != nil {
-		log.Printf("Rate limit check error for bot %s: %v", botToken, err)
+		log.Printf("Rate Limiter: Rate limit check error for bot %s: %v", botID, err)
 		return s.createDeniedResponse(500, "rate_limit_error", "Internal rate limiting error"), nil
 	}
 
+	// Log the result
 	if result.Allowed {
+		log.Printf("Rate Limiter: Request ALLOWED for bot %s - Quota: %d/%d, Rate: %d/%d", 
+			botID, result.QuotaUsed, result.QuotaLimit, result.RateUsed, result.RateLimit)
 		return s.createAllowedResponse(result), nil
 	} else {
+		log.Printf("Rate Limiter: Request DENIED for bot %s - Reason: %s, Quota: %d/%d, Rate: %d/%d", 
+			botID, result.Reason, result.QuotaUsed, result.QuotaLimit, result.RateUsed, result.RateLimit)
 		return s.createDeniedResponse(429, result.Reason, s.getErrorMessage(result)), nil
 	}
 }

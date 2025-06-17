@@ -100,6 +100,10 @@ async def send_message_bot(bot_token: str, request: SendMessageRequest):
     if not validate_bot_token(bot_token):
         raise HTTPException(status_code=401, detail="Unauthorized: Invalid bot token")
     
+    # Check if text is 'error' and raise 500 status code
+    if request.text == "error":
+        raise HTTPException(status_code=500, detail="Internal Server Error: Error message triggered")
+    
     message_id = random.randint(1, 10000)
     bot_id = extract_bot_id(bot_token)
     
@@ -236,6 +240,10 @@ async def send_message_legacy(request: MessageRequest):
     - **message**: The message content to send
     - **status**: Optional HTTP status code to return (defaults to 200)
     """
+    # Check if message is 'error' and raise 500 status code
+    if request.message == "error":
+        raise HTTPException(status_code=500, detail="Internal Server Error: Error message triggered")
+    
     # Use provided status or default to 200
     status_code = request.status if request.status is not None else 200
     
