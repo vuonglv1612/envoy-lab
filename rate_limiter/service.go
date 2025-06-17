@@ -105,6 +105,7 @@ func (s *RateLimiterService) checkRateLimit(ctx context.Context, botToken string
 		keys.RateLimit,
 		keys.Counter,
 		keys.UsageTotal,
+		keys.QuotaLimit,
 	}, currentTime, requestCost).Result()
 	
 	if err != nil {
@@ -119,7 +120,8 @@ func (s *RateLimiterService) checkRateLimit(ctx context.Context, botToken string
 type RedisKeys struct {
 	RateLimit  string // rate_limit:{bot_token}
 	Counter    string // counter:{bot_token}:{timestamp}
-	UsageTotal string // usage_total:{bot_token}:{period}
+	UsageTotal string // usage:{bot_token}
+	QuotaLimit string // quota:{bot_token}
 }
 
 // generateKeys generates Redis keys for a bot token
@@ -130,15 +132,9 @@ func (s *RateLimiterService) generateKeys(botToken string, currentTime int64) *R
 	return &RedisKeys{
 		RateLimit:  fmt.Sprintf("rate_limit:%s", botID),
 		Counter:    fmt.Sprintf("counter:%s:%d", botID, currentTime),
-		UsageTotal: fmt.Sprintf("usage_total:%s:%d", botID, s.getPeriodStart(currentTime)),
+		UsageTotal: fmt.Sprintf("usage:%s", botID),
+		QuotaLimit: fmt.Sprintf("quota:%s", botID),
 	}
-}
-
-// getPeriodStart calculates the billing period start timestamp
-func (s *RateLimiterService) getPeriodStart(currentTime int64) int64 {
-	// For simplicity, use monthly periods starting from the beginning of the month
-	t := time.Unix(currentTime, 0).UTC()
-	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC).Unix()
 }
 
 // parseLuaResult parses the result from Lua script execution
@@ -202,7 +198,13 @@ func (s *RateLimiterService) createAllowedResponse(result *CheckResult) *authv3.
 			},
 		},
 	}
-	
+	// add json response content type
+	headers = append(headers, &corev3.HeaderValueOption{
+		Header: &corev3.HeaderValue{
+			Key:   "content-type",
+			Value: "application/json",
+		},
+	})
 	return &authv3.CheckResponse{
 		Status: &rpc_status.Status{
 			Code: int32(codes.OK),
@@ -239,6 +241,13 @@ func (s *RateLimiterService) createDeniedResponse(httpStatus int32, reason strin
 			},
 		})
 	}
+	// add json response content type
+	headers = append(headers, &corev3.HeaderValueOption{
+		Header: &corev3.HeaderValue{
+			Key:   "content-type",
+			Value: "application/json",
+		},
+	})
 	
 	return &authv3.CheckResponse{
 		Status: &rpc_status.Status{

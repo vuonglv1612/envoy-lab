@@ -31,6 +31,14 @@ static_resources:
                   cluster_name: rate_limiter_service
               transport_api_version: V3
               include_peer_certificate: true
+              # Forward rate limiting headers to client response
+              allowed_headers:
+                patterns:
+                  - exact: "x-quota-remaining"
+                  - exact: "x-quota-limit"
+                  - exact: "x-rate-limit"
+                  - exact: "retry-after"
+                  - exact: "content-type"
           # Usage tracking (ext_proc)
           - name: envoy.filters.http.ext_proc
             typed_config:

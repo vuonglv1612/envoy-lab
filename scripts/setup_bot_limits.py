@@ -48,19 +48,25 @@ def main():
 def setup_bot_limits(client: redis.Redis, bot_id: str, rate_limit: int, quota_limit: int):
     """Set up rate limits for a bot in Redis"""
     rate_limit_key = f"rate_limit:{bot_id}"
+    quota_limit_key = f"quota:{bot_id}"
     
     try:
         # Set rate limit
         client.set(rate_limit_key, rate_limit)
         
+        # Set quota limit
+        client.set(quota_limit_key, quota_limit)
+        
         print("✅ Bot limits configured successfully:")
         print(f"   Bot ID: {bot_id}")
         print(f"   Rate Limit: {rate_limit} requests/second")
         print(f"   Quota Limit: {quota_limit} requests/period")
-        print(f"   Redis Key: {rate_limit_key}")
+        print(f"   Redis Keys:")
+        print(f"     - Rate Limit: {rate_limit_key}")
+        print(f"     - Quota Limit: {quota_limit_key}")
         
     except Exception as e:
-        print(f"❌ Failed to set rate limit: {e}")
+        print(f"❌ Failed to set bot limits: {e}")
         sys.exit(1)
 
 
@@ -68,22 +74,26 @@ def get_bot_status(client: redis.Redis, bot_id: str):
     """Get current status of a bot from Redis"""
     # Keys for the bot
     rate_limit_key = f"rate_limit:{bot_id}"
+    quota_limit_key = f"quota:{bot_id}"
     current_second = get_current_second()
     counter_key = f"counter:{bot_id}:{current_second}"
-    usage_key = f"usage_total:{bot_id}:{get_current_period()}"
+    usage_key = f"usage:{bot_id}"
     
     try:
         # Get values
-        rate_limit = client.get(rate_limit_key) or "50 (default)"
+        rate_limit = client.get(rate_limit_key) or "0 (not configured)"
+        quota_limit = client.get(quota_limit_key) or "0 (not configured)"
         current_rate = client.get(counter_key) or "0"
         current_usage = client.get(usage_key) or "0"
         
         print(f"🤖 Bot Status: {bot_id}")
         print(f"   Rate Limit: {rate_limit}/second")
+        print(f"   Quota Limit: {quota_limit}/period")
         print(f"   Current Rate: {current_rate} requests this second")
         print(f"   Usage This Period: {current_usage} requests")
         print("   Keys:")
         print(f"     - Rate Limit: {rate_limit_key}")
+        print(f"     - Quota Limit: {quota_limit_key}")
         print(f"     - Counter: {counter_key}")
         print(f"     - Usage: {usage_key}")
         
