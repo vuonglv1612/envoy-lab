@@ -62,5 +62,18 @@ services:
       timeout: 5s
       retries: 3
 
+  envoy:
+    image: envoyproxy/envoy:v1.34.1
+    ports:
+      - "127.0.0.1:10000:10000"
+      - "127.0.0.1:9901:9901"
+    volumes:
+      - ./envoy-docker.yaml:/etc/envoy/envoy.yaml
+    depends_on:
+      - backend
+      - rate_limiter
+      - usage_service
+    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml -l info
+
 volumes:
   redis_data: 
