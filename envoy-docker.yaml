@@ -28,13 +28,7 @@ static_resources:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
               grpc_service:
                 envoy_grpc:
-                  cluster_name: supplier_lookup_service
-              # Forward supplier lookup headers to client response AND make available to downstream filters
-              allowed_headers:
-                patterns:
-                  - exact: "x-connection-code"
-                  - exact: "x-supplier"
-                  - exact: "content-type"
+                  cluster_name: rate_limiter
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -53,17 +47,17 @@ static_resources:
                 address: backend
                 port_value: 8000
 
-  - name: supplier_lookup_service
+  - name: rate_limiter
     connect_timeout: 0.25s
     type: STRICT_DNS
     lb_policy: ROUND_ROBIN
     http2_protocol_options: {}
     load_assignment:
-      cluster_name: supplier_lookup_service
+      cluster_name: rate_limiter
       endpoints:
       - lb_endpoints:
         - endpoint:
             address:
               socket_address:
-                address: supplier_lookup
-                port_value: 9002 
+                address: rate_limiter
+                port_value: 9001
