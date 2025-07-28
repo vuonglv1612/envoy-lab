@@ -13,6 +13,28 @@ static_resources:
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
           stat_prefix: ingress_http
+          access_log:
+          - name: envoy.access_loggers.file
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+              path: "/tmp/access.log"
+              log_format:
+                json_format:
+                  timestamp: "%START_TIME(%Y-%m-%dT%H:%M:%S.%3fZ)%"
+                  protocol: "%PROTOCOL%"
+                  method: "%REQ(:METHOD)%"
+                  path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                  response_code: "%RESPONSE_CODE%"
+                  buyer_profile_id: "%REQ(X-Supplier)%"
+                  connection_code: "%REQ(X-Connection-Code)%"
+                  supplier: "%REQ(X-Supplier)%"
+                  bytes_received: "%BYTES_RECEIVED%"
+                  bytes_sent: "%BYTES_SENT%"
+                  duration: "%DURATION%"
+                  upstream_duration: "%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%"
+                  request_id: "%REQ(X-REQUEST-ID)%"
+                  remote_address: "%DOWNSTREAM_REMOTE_ADDRESS%"
+                  user_agent: "%REQ(USER-AGENT)%"
           route_config:
             name: local_route
             virtual_hosts:
@@ -28,7 +50,7 @@ static_resources:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
               grpc_service:
                 envoy_grpc:
-                  cluster_name: rate_limiter
+                  cluster_name: supplier_lookup
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -47,17 +69,17 @@ static_resources:
                 address: backend
                 port_value: 8000
 
-  - name: rate_limiter
+  - name: supplier_lookup
     connect_timeout: 0.25s
     type: STRICT_DNS
     lb_policy: ROUND_ROBIN
     http2_protocol_options: {}
     load_assignment:
-      cluster_name: rate_limiter
+      cluster_name: supplier_lookup
       endpoints:
       - lb_endpoints:
         - endpoint:
             address:
               socket_address:
-                address: rate_limiter
-                port_value: 9001
+                address: supplier_lookup
+                port_value: 9002

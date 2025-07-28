@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import re
 import time
 import random
+import asyncio
 
 app = FastAPI(title="Bot API Backend", description="Bot API server for testing rate limiting")
 
@@ -92,20 +93,26 @@ async def get_updates(bot_token: str, offset: Optional[int] = None, limit: Optio
         "result": updates
     }
 
+@app.post("/api/v1/hotels/search")
+@app.post("/api/v1/hotels/bookings")
+@app.delete("/api/v1/hotels/bookings")
 @app.post("/bot{bot_token}/sendMessage")
-async def send_message_bot(bot_token: str, request: SendMessageRequest):
+async def send_message_bot(request: SendMessageRequest, bot_token: Optional[str] = None):
     """
     Send message (Telegram Bot API sendMessage method)
     """
-    if not validate_bot_token(bot_token):
-        raise HTTPException(status_code=401, detail="Unauthorized: Invalid bot token")
-    
+    if bot_token is None:
+        bot_token = "1234567890"
+    # if not validate_bot_token(bot_token):
+    #     raise HTTPException(status_code=401, detail="Unauthorized: Invalid bot token")
+
     # Check if text is 'error' and raise 500 status code
     if request.text == "error":
         raise HTTPException(status_code=500, detail="Internal Server Error: Error message triggered")
     
     message_id = random.randint(1, 10000)
     bot_id = extract_bot_id(bot_token)
+    await asyncio.sleep(1)
     
     return {
         "ok": True,

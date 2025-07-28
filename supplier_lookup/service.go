@@ -88,10 +88,11 @@ func (s *SupplierLookupService) lookupSupplier(ctx context.Context, connectionCo
 	if err != nil {
 		if err == redis.Nil {
 			// Key not found
+			supplier_name := "vuonglv"
 			return &LookupResult{
-				Found:          false,
+				Found:          true,
 				ConnectionCode: connectionCode,
-				Supplier:       "",
+				Supplier:       supplier_name,
 				ErrorMessage:   "Invalid Connection code not belong to any supplier",
 			}, nil
 		}
@@ -156,7 +157,7 @@ func (s *SupplierLookupService) createDeniedResponse(httpStatus int32, reason st
 						},
 					},
 				},
-				Body: fmt.Sprintf(`{"error": "%s", "message": "%s"}`, reason, message),
+				Body: fmt.Sprintf(`{"error": {"code": 400, "message": "%s"}}`, message),
 			},
 		},
 	}

@@ -6,23 +6,31 @@ services:
       - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - logging-net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  rate_limiter:
+  supplier_lookup:
     build:
-      context: ./chat_bot_ratelimiter
+      context: ./supplier_lookup
       dockerfile: Dockerfile
     ports:
-      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:9002:9002"
+    networks:
+      - logging-net
     depends_on:
       redis:
         condition: service_healthy
+    environment:
+      - REDIS_ADDR=redis:6379
+      - REDIS_MODE=standalone
+      - GRPC_PORT=:9002
     healthcheck:
-      test: ["CMD", "grpc_health_probe", "-addr=:9001"]
+      test: ["CMD", "grpc_health_probe", "-addr=:9002"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -33,6 +41,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "127.0.0.1:8000:8000"
+    networks:
+      - logging-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 10s
@@ -46,10 +56,65 @@ services:
       - "127.0.0.1:9901:9901"
     volumes:
       - ./envoy-docker.yaml:/etc/envoy/envoy.yaml
+      - envoy_logs:/tmp
+    networks:
+      - logging-net
     depends_on:
       - backend
-      - rate_limiter
+      - supplier_lookup
     command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml -l info
 
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    networks:
+      - logging-net
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    depends_on:
+      - loki
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - logging-net
+
+  fluent-bit:
+    image: fluent/fluent-bit:3.0
+    container_name: fluent-bit
+    volumes:
+      - ./fluent-bit-envoy.conf:/fluent-bit/etc/fluent-bit.conf
+      - ./parsers.conf:/fluent-bit/etc/parsers.conf
+      - envoy_logs:/tmp:ro
+    depends_on:
+      - loki
+      - envoy
+    networks:
+      - logging-net
+    ports:
+      - "2020:2020"
+    restart: unless-stopped
+
 volumes:
-  redis_data: 
+  redis_data:
+  loki_data:
+    driver: local
+  grafana_data:
+    driver: local
+  envoy_logs:
+
+networks:
+  logging-net:
+    driver: bridge 

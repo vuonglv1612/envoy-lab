@@ -1,0 +1,21 @@
+access_log:
+- name: envoy.access_loggers.file
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+    log_format:
+      json_format:
+        timestamp: "%START_TIME(%Y-%m-%dT%H:%M:%S.%3fZ)%"
+        protocol: "%PROTOCOL%"
+        method: "%REQ(:METHOD)%"
+        path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+        response_code: "%RESPONSE_CODE%"
+        buyer_profile_id: "%REQ(X-Supplier)%"
+        connection_code: "%REQ(X-Connection-Code)%"
+        supplier: "%REQ(X-Supplier)%"
+        bytes_received: "%BYTES_RECEIVED%"
+        bytes_sent: "%BYTES_SENT%"
+        duration: "%DURATION%"
+        upstream_duration: "%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%"
+        request_id: "%REQ(X-REQUEST-ID)%"
+        remote_address: "%DOWNSTREAM_REMOTE_ADDRESS%"
+        user_agent: "%REQ(USER-AGENT)%"
